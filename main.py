@@ -1,14 +1,17 @@
 import os
+import re
 import json
 import uuid
+import time
 import secrets
 import subprocess
 import shutil
 import datetime
 from pathlib import Path
 from typing import Optional
+from collections import defaultdict
 
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Query
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +24,10 @@ ADMIN_KEY = os.getenv("ADMIN_KEY", "admin-change-me")
 REQUIRE_API_KEY = os.getenv("REQUIRE_API_KEY", "true").lower() == "true"
 KEYS_FILE = os.getenv("KEYS_FILE", "/app/data/api_keys.json")
 TEMP_DIR = os.getenv("TEMP_DIR", "/tmp/tiktok_dl")
+
+# Rate limit: máximo de requisições por janela de tempo
+RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "10"))  # requests
+RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))       # segundos
 
 os.makedirs(TEMP_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(KEYS_FILE), exist_ok=True)
@@ -39,6 +46,39 @@ _header_key = APIKeyHeader(name="X-API-Key", auto_error=False)
 _query_key = APIKeyQuery(name="api_key", auto_error=False)
 
 
+# ── Rate limiter (in-memory por API key / IP) ─────────────────────────────────
+_rate_buckets: dict[str, list[float]] = defaultdict(list)
+
+def check_rate_limit(identifier: str):
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW
+    bucket = _rate_buckets[identifier]
+
+    # Remove entradas fora da janela
+    _rate_buckets[identifier] = [t for t in bucket if t > window_start]
+
+    if len(_rate_buckets[identifier]) >= RATE_LIMIT_REQUESTS:
+        retry_after = int(_rate_buckets[identifier][0] + RATE_LIMIT_WINDOW - now) + 1
+        raise HTTPException(
+            status_code=429,
+            detail=f"Limite de {RATE_LIMIT_REQUESTS} requisições por {RATE_LIMIT_WINDOW}s atingido. Tente novamente em {retry_after}s.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    _rate_buckets[identifier].append(now)
+
+
+# ── URL validation ────────────────────────────────────────────────────────────
+TIKTOK_PATTERN = re.compile(
+    r"https?://(www\.|vm\.|vt\.|m\.)?tiktok\.com/",
+    re.IGNORECASE,
+)
+
+def validate_tiktok_url(url: str):
+    if not TIKTOK_PATTERN.match(url):
+        raise HTTPException(400, "URL inválida — apenas links do TikTok são aceitos.")
+
+
 # ── Key helpers ───────────────────────────────────────────────────────────────
 def load_keys() -> dict:
     if not Path(KEYS_FILE).exists():
@@ -53,15 +93,20 @@ def save_keys(keys: dict):
 
 
 async def get_api_key(
+    request: Request,
     h: Optional[str] = Depends(_header_key),
     q: Optional[str] = Depends(_query_key),
 ):
     if not REQUIRE_API_KEY:
+        identifier = request.client.host
+        check_rate_limit(identifier)
         return "public"
+
     key = h or q
     if not key:
-        raise HTTPException(401, "API key obrigatória — use o header X-API-Key ou ?api_key=")
+        raise HTTPException(401, "API key obrigatória — use o header X-API-Key")
     if key == ADMIN_KEY or key in load_keys():
+        check_rate_limit(key)
         return key
     raise HTTPException(401, "API key inválida")
 
@@ -85,19 +130,10 @@ def _safe_filename(title: str, max_len: int = 60) -> str:
     return "".join(c for c in title if c.isalnum() or c in " -_").strip()[:max_len] or "video"
 
 
-def _best_video_format(info: dict) -> tuple[str, dict]:
-    """Return (url, http_headers) for best video format."""
-    formats = info.get("formats", [info])
-    for fmt in reversed(formats):
-        if fmt.get("vcodec") not in (None, "none") and fmt.get("url"):
-            return fmt["url"], fmt.get("http_headers", {})
-    return info.get("url", ""), info.get("http_headers", {})
-
-
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 @app.get("/api/info")
 async def video_info(url: str = Query(...), _=Depends(get_api_key)):
-    """Retorna metadados do vídeo sem fazer download."""
+    validate_tiktok_url(url)
     try:
         with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -112,13 +148,15 @@ async def video_info(url: str = Query(...), _=Depends(get_api_key)):
             "like_count": info.get("like_count"),
             "comment_count": info.get("comment_count"),
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(400, str(e))
 
 
 @app.post("/api/download")
 async def download_video(req: URLRequest, bg: BackgroundTasks, _=Depends(get_api_key)):
-    """Baixa o vídeo sem marca d'água e retorna o arquivo MP4."""
+    validate_tiktok_url(req.url)
     work = Path(TEMP_DIR) / str(uuid.uuid4())
     work.mkdir(parents=True)
     try:
@@ -153,7 +191,7 @@ async def download_video(req: URLRequest, bg: BackgroundTasks, _=Depends(get_api
 
 @app.post("/api/thumbnail")
 async def get_thumbnail(req: URLRequest, bg: BackgroundTasks, _=Depends(get_api_key)):
-    """Baixa o vídeo, extrai o primeiro frame e retorna como JPEG."""
+    validate_tiktok_url(req.url)
     work = Path(TEMP_DIR) / str(uuid.uuid4())
     work.mkdir(parents=True)
     try:
@@ -183,7 +221,7 @@ async def get_thumbnail(req: URLRequest, bg: BackgroundTasks, _=Depends(get_api_
         if not thumb.exists():
             raise HTTPException(500, f"Extração de frame falhou: {result.stderr.decode()[-400:]}")
 
-        filename = f"{_safe_filename(info.get('title', 'frame'), 40)}_frame.jpg"
+        filename = f"tiktok_{info.get('id', 'frame')}_frame.jpg"
 
         bg.add_task(shutil.rmtree, work, True)
         return FileResponse(str(thumb), media_type="image/jpeg", filename=filename)

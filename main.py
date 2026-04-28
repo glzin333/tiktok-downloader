@@ -190,6 +190,53 @@ async def download_video(req: URLRequest, bg: BackgroundTasks, _=Depends(get_api
         raise HTTPException(500, str(e))
 
 
+@app.post("/api/download/gemini")
+async def download_for_gemini(req: URLRequest, bg: BackgroundTasks, _=Depends(get_api_key)):
+    """Baixa o vídeo e converte para H.264 — compatível com Gemini File API."""
+    validate_tiktok_url(req.url)
+    work = Path(TEMP_DIR) / str(uuid.uuid4())
+    work.mkdir(parents=True)
+    try:
+        opts = {
+            "format": "best[ext=mp4]/best",
+            "outtmpl": str(work / "%(id)s.%(ext)s"),
+            "quiet": True,
+            "no_warnings": True,
+            "nocheckcertificate": True,
+            "concurrent_fragment_downloads": 4,
+        }
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(req.url, download=True)
+
+        files = list(work.glob("*"))
+        if not files:
+            raise HTTPException(500, "Download falhou")
+
+        source = files[0]
+        converted = work / "converted.mp4"
+
+        subprocess.run([
+            "ffmpeg", "-y", "-i", str(source),
+            "-vcodec", "libx264", "-acodec", "aac",
+            "-movflags", "+faststart",
+            str(converted)
+        ], capture_output=True, timeout=120)
+
+        if not converted.exists():
+            raise HTTPException(500, "Conversão para H.264 falhou")
+
+        filename = f"tiktok_{info.get('id', 'video')}_h264.mp4"
+        bg.add_task(shutil.rmtree, work, True)
+        return FileResponse(str(converted), media_type="video/mp4", filename=filename)
+
+    except HTTPException:
+        shutil.rmtree(work, True)
+        raise
+    except Exception as e:
+        shutil.rmtree(work, True)
+        raise HTTPException(500, str(e))
+
+
 @app.post("/api/thumbnail")
 async def get_thumbnail(req: URLRequest, bg: BackgroundTasks, _=Depends(get_api_key)):
     validate_tiktok_url(req.url)

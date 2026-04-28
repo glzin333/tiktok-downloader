@@ -152,26 +152,31 @@ async def download_video(req: URLRequest, bg: BackgroundTasks, _=Depends(get_api
 
 @app.post("/api/thumbnail")
 async def get_thumbnail(req: URLRequest, bg: BackgroundTasks, _=Depends(get_api_key)):
-    """Extrai o primeiro frame do vídeo e retorna como JPEG."""
+    """Baixa o vídeo, extrai o primeiro frame e retorna como JPEG."""
     work = Path(TEMP_DIR) / str(uuid.uuid4())
     work.mkdir(parents=True)
     try:
-        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
-            info = ydl.extract_info(req.url, download=False)
+        opts = {
+            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "outtmpl": str(work / "%(id)s.%(ext)s"),
+            "quiet": True,
+            "no_warnings": True,
+            "nocheckcertificate": True,
+        }
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(req.url, download=True)
 
-        video_url, http_headers = _best_video_format(info)
-        if not video_url:
-            raise HTTPException(500, "Não foi possível extrair a URL do vídeo")
+        files = list(work.glob("*"))
+        if not files:
+            raise HTTPException(500, "Download falhou")
 
+        video_file = files[0]
         thumb = work / "frame.jpg"
 
-        cmd = ["ffmpeg", "-y"]
-        if http_headers:
-            headers_str = "".join(f"{k}: {v}\r\n" for k, v in http_headers.items())
-            cmd += ["-headers", headers_str]
-        cmd += ["-i", video_url, "-vframes", "1", "-q:v", "2", str(thumb)]
-
-        result = subprocess.run(cmd, capture_output=True, timeout=45)
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", str(video_file), "-vframes", "1", "-q:v", "2", str(thumb)],
+            capture_output=True, timeout=60,
+        )
 
         if not thumb.exists():
             raise HTTPException(500, f"Extração de frame falhou: {result.stderr.decode()[-400:]}")

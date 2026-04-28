@@ -8,6 +8,7 @@ import secrets
 import subprocess
 import shutil
 import datetime
+import httpx
 from pathlib import Path
 from typing import Optional
 from collections import defaultdict
@@ -153,6 +154,78 @@ async def video_info(url: str = Query(...), _=Depends(get_api_key)):
         raise
     except Exception as e:
         raise HTTPException(400, str(e))
+
+
+class GeminiUploadRequest(BaseModel):
+    url: str
+    gemini_key: str
+
+
+@app.post("/api/upload/gemini")
+async def upload_to_gemini(req: GeminiUploadRequest, bg: BackgroundTasks, _=Depends(get_api_key)):
+    """Baixa o vídeo, converte para H.264 e faz upload direto para o Gemini File API."""
+    validate_tiktok_url(req.url)
+    work = Path(TEMP_DIR) / str(uuid.uuid4())
+    work.mkdir(parents=True)
+    try:
+        opts = {
+            "format": "best[ext=mp4]/best",
+            "outtmpl": str(work / "%(id)s.%(ext)s"),
+            "quiet": True,
+            "no_warnings": True,
+            "nocheckcertificate": True,
+            "concurrent_fragment_downloads": 4,
+        }
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(req.url, download=True)
+
+        files = list(work.glob("*"))
+        if not files:
+            raise HTTPException(500, "Download falhou")
+
+        source = files[0]
+        converted = work / "converted.mp4"
+
+        subprocess.run([
+            "ffmpeg", "-y", "-i", str(source),
+            "-vcodec", "libx264", "-acodec", "aac",
+            "-movflags", "+faststart",
+            str(converted)
+        ], capture_output=True, timeout=120)
+
+        if not converted.exists():
+            raise HTTPException(500, "Conversão H.264 falhou")
+
+        video_bytes = converted.read_bytes()
+        upload_url = f"https://generativelanguage.googleapis.com/upload/v1beta/files?key={req.gemini_key}"
+
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(
+                upload_url,
+                content=video_bytes,
+                headers={"Content-Type": "video/mp4"},
+            )
+
+        if resp.status_code != 200:
+            raise HTTPException(500, f"Upload Gemini falhou: {resp.text[:300]}")
+
+        file_data = resp.json().get("file", {})
+
+        bg.add_task(shutil.rmtree, work, True)
+        return JSONResponse({
+            "file_uri": file_data.get("uri"),
+            "file_name": file_data.get("name"),
+            "state": file_data.get("state"),
+            "video_id": info.get("id"),
+            "video_title": info.get("title"),
+        })
+
+    except HTTPException:
+        shutil.rmtree(work, True)
+        raise
+    except Exception as e:
+        shutil.rmtree(work, True)
+        raise HTTPException(500, str(e))
 
 
 @app.post("/api/download")

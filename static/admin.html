@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikDown — Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { font-family: 'Inter', sans-serif; }
+        .gradient-text {
+            background: linear-gradient(135deg, #ff0050, #00f2ea);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .btn-red { background: linear-gradient(135deg, #ff0050, #ee1d52); }
+        input, button { outline: none; }
+    </style>
+</head>
+<body class="bg-[#0a0a0a] text-white min-h-screen flex flex-col">
+
+    <!-- Nav -->
+    <nav class="border-b border-white/5 px-6 py-4 flex-shrink-0">
+        <div class="max-w-4xl mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <a href="/" class="text-gray-500 hover:text-white transition-colors p-1">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                </a>
+                <span class="text-xl font-bold gradient-text">TikDown</span>
+                <span class="text-gray-600 text-sm font-medium">/</span>
+                <span class="text-gray-400 text-sm">Admin</span>
+            </div>
+            <span id="auth-badge" class="hidden text-xs bg-green-500/10 text-green-400 border border-green-500/20 px-3 py-1 rounded-full">
+                ● Autenticado
+            </span>
+        </div>
+    </nav>
+
+    <!-- Login -->
+    <div id="login-section" class="flex-1 flex items-center justify-center px-6 py-12">
+        <div class="w-full max-w-sm">
+            <div class="bg-[#141414] rounded-2xl p-8 border border-white/5 shadow-xl">
+                <div class="text-center mb-6">
+                    <div class="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <svg class="w-7 h-7 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                        </svg>
+                    </div>
+                    <h1 class="text-xl font-bold mb-1">Painel Administrativo</h1>
+                    <p class="text-gray-500 text-sm">Entre com sua chave de administrador</p>
+                </div>
+                <div class="space-y-3">
+                    <input id="admin-key-input" type="password" placeholder="Admin Key..."
+                        class="w-full bg-[#1e1e1e] border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-white/30 transition-colors"
+                        onkeydown="if(event.key==='Enter') login()" />
+                    <button onclick="login()"
+                        class="w-full btn-red text-white font-semibold py-3 rounded-xl hover:opacity-90 transition-opacity">
+                        Entrar
+                    </button>
+                    <p id="login-error" class="text-red-400 text-xs text-center hidden">Chave inválida. Tente novamente.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard" class="hidden flex-1 px-6 py-8">
+        <div class="max-w-4xl mx-auto space-y-6">
+
+            <!-- Header row -->
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-2xl font-bold">API Keys</h1>
+                    <p class="text-gray-500 text-sm mt-0.5">Gerencie as chaves de acesso à API</p>
+                </div>
+                <button onclick="openCreateModal()"
+                    class="btn-red text-white font-semibold px-5 py-2.5 rounded-xl hover:opacity-90 transition-opacity flex items-center gap-2 text-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                    </svg>
+                    Nova Key
+                </button>
+            </div>
+
+            <!-- Stats -->
+            <div class="grid grid-cols-3 gap-3">
+                <div class="bg-[#141414] rounded-2xl p-4 border border-white/5">
+                    <div id="stat-count" class="text-3xl font-bold gradient-text">0</div>
+                    <div class="text-gray-500 text-xs mt-1">Keys Ativas</div>
+                </div>
+                <div class="bg-[#141414] rounded-2xl p-4 border border-white/5">
+                    <div class="text-3xl font-bold text-[#00f2ea]">●</div>
+                    <div class="text-gray-500 text-xs mt-1">Online</div>
+                </div>
+                <div class="bg-[#141414] rounded-2xl p-4 border border-white/5">
+                    <div class="text-3xl font-bold text-[#ff0050]">/docs</div>
+                    <div class="text-gray-500 text-xs mt-1"><a href="/docs" class="hover:text-gray-300 transition-colors">Swagger UI</a></div>
+                </div>
+            </div>
+
+            <!-- Keys table -->
+            <div class="bg-[#141414] rounded-2xl border border-white/5 overflow-hidden">
+                <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between">
+                    <h2 class="font-semibold text-sm">Chaves Cadastradas</h2>
+                    <button onclick="refreshKeys()" class="text-gray-500 hover:text-white transition-colors p-1" title="Atualizar">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
+                    </button>
+                </div>
+                <div id="keys-list" class="divide-y divide-white/5 min-h-[80px]">
+                    <div class="flex items-center justify-center py-8 text-gray-500 text-sm">Carregando...</div>
+                </div>
+            </div>
+
+            <!-- API Docs -->
+            <div class="bg-[#141414] rounded-2xl border border-white/5 overflow-hidden">
+                <button onclick="toggleDocs()"
+                    class="w-full flex items-center justify-between px-6 py-4 text-sm font-medium text-gray-300 hover:text-white transition-colors">
+                    <span class="flex items-center gap-2">
+                        <svg class="w-4 h-4 text-[#00f2ea]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+                        </svg>
+                        Documentação da API
+                    </span>
+                    <svg id="docs-chev" class="w-4 h-4 text-gray-500 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+
+                <div id="docs-body" class="hidden px-6 pb-6 space-y-5 text-xs">
+
+                    <!-- Auth -->
+                    <div>
+                        <h3 class="text-gray-400 font-medium mb-2">Autenticação</h3>
+                        <div class="bg-[#0d0d0d] rounded-xl p-4 font-mono space-y-1 text-gray-300">
+                            <div class="text-gray-500"># Header (recomendado)</div>
+                            <div>X-API-Key: sua-chave-aqui</div>
+                            <div class="text-gray-500 mt-2"># Query param (alternativo)</div>
+                            <div>GET /api/info?url=...&amp;api_key=sua-chave</div>
+                        </div>
+                    </div>
+
+                    <!-- Endpoints -->
+                    <div>
+                        <h3 class="text-gray-400 font-medium mb-2">Endpoints</h3>
+                        <div class="space-y-2">
+                            <div class="bg-[#0d0d0d] rounded-xl p-4">
+                                <div class="flex items-center gap-2 mb-1.5">
+                                    <span class="bg-yellow-500/15 text-yellow-400 px-2 py-0.5 rounded font-mono font-bold">GET</span>
+                                    <span class="font-mono text-gray-200">/api/info</span>
+                                </div>
+                                <div class="text-gray-500 font-mono">Parâmetros: ?url={tiktok_url}</div>
+                                <div class="text-gray-400 mt-1">→ JSON: id, title, duration, uploader, thumbnail, view_count, like_count</div>
+                            </div>
+                            <div class="bg-[#0d0d0d] rounded-xl p-4">
+                                <div class="flex items-center gap-2 mb-1.5">
+                                    <span class="bg-green-500/15 text-green-400 px-2 py-0.5 rounded font-mono font-bold">POST</span>
+                                    <span class="font-mono text-gray-200">/api/download</span>
+                                </div>
+                                <div class="text-gray-500 font-mono">Body: {"url": "https://tiktok.com/..."}</div>
+                                <div class="text-[#00f2ea] mt-1">→ Arquivo MP4 sem marca d'água (Content-Type: video/mp4)</div>
+                            </div>
+                            <div class="bg-[#0d0d0d] rounded-xl p-4">
+                                <div class="flex items-center gap-2 mb-1.5">
+                                    <span class="bg-green-500/15 text-green-400 px-2 py-0.5 rounded font-mono font-bold">POST</span>
+                                    <span class="font-mono text-gray-200">/api/thumbnail</span>
+                                </div>
+                                <div class="text-gray-500 font-mono">Body: {"url": "https://tiktok.com/..."}</div>
+                                <div class="text-[#ff0050] mt-1">→ Imagem JPEG do 1º frame (Content-Type: image/jpeg)</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- n8n -->
+                    <div>
+                        <h3 class="text-gray-400 font-medium mb-2">Exemplo — n8n (HTTP Request node)</h3>
+                        <div class="bg-[#0d0d0d] rounded-xl p-4 font-mono text-gray-300 space-y-0.5">
+                            <div class="text-gray-500"># Para receber o 1º frame como imagem binária:</div>
+                            <div>Method: <span class="text-green-400">POST</span></div>
+                            <div>URL: <span class="text-[#00f2ea]">http://SEU_IP:8000/api/thumbnail</span></div>
+                            <div>Headers:</div>
+                            <div class="pl-4">X-API-Key: <span class="text-yellow-400">sua-chave</span></div>
+                            <div class="pl-4">Content-Type: application/json</div>
+                            <div>Body (JSON):</div>
+                            <div class="pl-4">{"url": "{{ $json.tiktok_url }}"}</div>
+                            <div class="text-gray-500 mt-2"># Response Type: selecione "File"</div>
+                            <div class="text-gray-500"># O binário da imagem estará em $binary.data</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Modal: criar key -->
+    <div id="modal-create" class="fixed inset-0 bg-black/60 z-50 hidden items-center justify-center" onclick="if(event.target===this)closeCreate()">
+        <div class="bg-[#141414] rounded-2xl p-6 border border-white/10 w-full max-w-sm mx-4 shadow-2xl">
+            <h2 class="text-lg font-semibold mb-4">Criar Nova API Key</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="text-xs text-gray-400 mb-1.5 block">Nome da key (opcional)</label>
+                    <input id="new-key-name" type="text" placeholder="Ex: n8n automação, frontend..."
+                        class="w-full bg-[#1e1e1e] border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-white/30 transition-colors"
+                        onkeydown="if(event.key==='Enter') createKey()" />
+                </div>
+                <div class="flex gap-2.5">
+                    <button onclick="closeCreate()"
+                        class="flex-1 bg-[#1e1e1e] text-gray-400 font-medium py-2.5 rounded-xl hover:bg-[#252525] transition-colors text-sm">
+                        Cancelar
+                    </button>
+                    <button onclick="createKey()"
+                        class="flex-1 btn-red text-white font-semibold py-2.5 rounded-xl hover:opacity-90 transition-opacity text-sm">
+                        Criar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: key criada -->
+    <div id="modal-created" class="fixed inset-0 bg-black/60 z-50 hidden items-center justify-center">
+        <div class="bg-[#141414] rounded-2xl p-6 border border-white/10 w-full max-w-sm mx-4 shadow-2xl">
+            <div class="text-center mb-5">
+                <div class="w-12 h-12 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                    </svg>
+                </div>
+                <h2 class="font-bold text-lg">Key Criada!</h2>
+                <p class="text-gray-500 text-xs mt-1">Copie agora — não será exibida novamente</p>
+            </div>
+            <div id="created-key-val" class="bg-[#0d0d0d] rounded-xl p-4 font-mono text-xs text-green-400 break-all mb-4 select-all cursor-text"></div>
+            <button onclick="copyAndClose()"
+                class="w-full btn-red text-white font-semibold py-3 rounded-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2 text-sm">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                </svg>
+                Copiar e Fechar
+            </button>
+        </div>
+    </div>
+
+<script>
+    let adminKey = '';
+    let createdKey = '';
+
+    async function login() {
+        const k = document.getElementById('admin-key-input').value.trim();
+        if (!k) return;
+        try {
+            const res = await fetch('/admin/keys', { headers: { 'X-API-Key': k } });
+            if (res.ok) {
+                adminKey = k;
+                localStorage.setItem('tt_admin_key', k);
+                document.getElementById('login-section').classList.add('hidden');
+                document.getElementById('dashboard').classList.remove('hidden');
+                document.getElementById('auth-badge').classList.remove('hidden');
+                renderKeys(await res.json());
+            } else {
+                const err = document.getElementById('login-error');
+                err.classList.remove('hidden');
+                setTimeout(() => err.classList.add('hidden'), 3000);
+            }
+        } catch { alert('Erro de conexão com o servidor.'); }
+    }
+
+    function renderKeys(data) {
+        document.getElementById('stat-count').textContent = data.count;
+        const list = document.getElementById('keys-list');
+        if (!data.keys.length) {
+            list.innerHTML = '<div class="flex items-center justify-center py-8 text-gray-500 text-sm">Nenhuma key cadastrada ainda</div>';
+            return;
+        }
+        list.innerHTML = data.keys.map(k => {
+            const short = `${k.key.slice(0,8)}...${k.key.slice(-4)}`;
+            const name = k.name || 'Sem nome';
+            const date = k.created_at ? new Date(k.created_at).toLocaleDateString('pt-BR') : '';
+            return `
+            <div class="px-6 py-4 flex items-center gap-4">
+                <div class="flex-1 min-w-0">
+                    <div class="font-medium text-sm mb-0.5">${escapeHtml(name)}</div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-mono text-xs text-gray-500">${short}</span>
+                        <button onclick="copyKey('${k.key}')" title="Copiar key completa"
+                            class="text-gray-600 hover:text-[#00f2ea] transition-colors">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                            </svg>
+                        </button>
+                    </div>
+                    ${date ? `<div class="text-xs text-gray-600 mt-0.5">Criada em ${date}</div>` : ''}
+                </div>
+                <button onclick="revokeKey('${k.key}', '${escapeHtml(name)}')"
+                    class="text-gray-600 hover:text-red-400 transition-colors flex items-center gap-1 text-xs shrink-0">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                    </svg>
+                    Revogar
+                </button>
+            </div>`;
+        }).join('');
+    }
+
+    async function refreshKeys() {
+        const res = await fetch('/admin/keys', { headers: { 'X-API-Key': adminKey } });
+        if (res.ok) renderKeys(await res.json());
+    }
+
+    function openCreateModal() {
+        document.getElementById('new-key-name').value = '';
+        const m = document.getElementById('modal-create');
+        m.classList.remove('hidden');
+        m.classList.add('flex');
+        setTimeout(() => document.getElementById('new-key-name').focus(), 100);
+    }
+
+    function closeCreate() {
+        const m = document.getElementById('modal-create');
+        m.classList.add('hidden');
+        m.classList.remove('flex');
+    }
+
+    async function createKey() {
+        const name = document.getElementById('new-key-name').value.trim();
+        closeCreate();
+        try {
+            const res = await fetch(`/admin/keys?name=${encodeURIComponent(name)}`, {
+                method: 'POST',
+                headers: { 'X-API-Key': adminKey },
+            });
+            if (res.ok) {
+                const data = await res.json();
+                createdKey = data.key;
+                document.getElementById('created-key-val').textContent = data.key;
+                const m = document.getElementById('modal-created');
+                m.classList.remove('hidden');
+                m.classList.add('flex');
+                await refreshKeys();
+            }
+        } catch { alert('Erro ao criar key.'); }
+    }
+
+    async function copyAndClose() {
+        try { await navigator.clipboard.writeText(createdKey); } catch {}
+        const m = document.getElementById('modal-created');
+        m.classList.add('hidden');
+        m.classList.remove('flex');
+    }
+
+    async function revokeKey(key, name) {
+        if (!confirm(`Revogar a key "${name}"?\n\nEsta ação não pode ser desfeita.`)) return;
+        try {
+            const res = await fetch(`/admin/keys/${key}`, {
+                method: 'DELETE',
+                headers: { 'X-API-Key': adminKey },
+            });
+            if (res.ok) await refreshKeys();
+        } catch { alert('Erro ao revogar key.'); }
+    }
+
+    async function copyKey(key) {
+        try {
+            await navigator.clipboard.writeText(key);
+        } catch {}
+    }
+
+    function toggleDocs() {
+        const body = document.getElementById('docs-body');
+        const chev = document.getElementById('docs-chev');
+        body.classList.toggle('hidden');
+        chev.style.transform = body.classList.contains('hidden') ? '' : 'rotate(180deg)';
+    }
+
+    function escapeHtml(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    window.addEventListener('load', () => {
+        const stored = localStorage.getItem('tt_admin_key');
+        if (stored) {
+            document.getElementById('admin-key-input').value = stored;
+            login();
+        }
+    });
+</script>
+</body>
+</html>

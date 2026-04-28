@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikDown — Baixar Vídeos TikTok</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { font-family: 'Inter', sans-serif; }
+        .gradient-text {
+            background: linear-gradient(135deg, #ff0050, #00f2ea);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .btn-red { background: linear-gradient(135deg, #ff0050, #ee1d52); }
+        .spin { animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        input, button { outline: none; }
+        #settings-panel { transition: transform 0.3s ease, opacity 0.3s ease; }
+        #settings-panel.hidden { transform: translateX(100%); opacity: 0; pointer-events: none; }
+        #settings-panel:not(.hidden) { transform: translateX(0); opacity: 1; }
+    </style>
+</head>
+<body class="bg-[#0a0a0a] text-white min-h-screen flex flex-col">
+
+    <!-- Settings overlay -->
+    <div id="settings-overlay" class="fixed inset-0 bg-black/50 z-40 hidden" onclick="closeSettings()"></div>
+
+    <!-- Settings panel -->
+    <div id="settings-panel" class="fixed right-0 top-0 h-full w-80 bg-[#141414] border-l border-white/10 z-50 p-6 hidden">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-lg font-semibold">Configurações</h2>
+            <button onclick="closeSettings()" class="text-gray-400 hover:text-white p-1">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div class="space-y-4">
+            <div>
+                <label class="text-sm text-gray-400 mb-1.5 block">API Key</label>
+                <input id="settings-api-key" type="password" placeholder="Cole sua API Key..."
+                    class="w-full bg-[#1e1e1e] border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:border-white/30 transition-colors" />
+            </div>
+            <button onclick="saveSettings()"
+                class="w-full btn-red text-white font-semibold py-2.5 rounded-xl hover:opacity-90 transition-opacity">
+                Salvar
+            </button>
+            <div class="border-t border-white/10 pt-4 space-y-2">
+                <p class="text-xs text-gray-500">Não tem uma API Key ainda?</p>
+                <a href="/admin.html" class="text-sm text-[#00f2ea] hover:underline flex items-center gap-1">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101"/>
+                    </svg>
+                    Acessar painel admin
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Nav -->
+    <nav class="border-b border-white/5 px-6 py-4 flex-shrink-0">
+        <div class="max-w-xl mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+                <svg class="w-7 h-7" viewBox="0 0 48 48" fill="none">
+                    <path d="M39.18 13.38a9.66 9.66 0 0 1-7.54-8.5V4H24.7v27.34a5.78 5.78 0 1 1-4.16-5.56v-7.3a13.16 13.16 0 1 0 11.1 13v-13.9a16.54 16.54 0 0 0 9.68 3.12v-7a9.7 9.7 0 0 1-2.14-.32z" fill="url(#g1)"/>
+                    <defs>
+                        <linearGradient id="g1" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+                            <stop offset="0%" stop-color="#ff0050"/>
+                            <stop offset="100%" stop-color="#00f2ea"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+                <span class="text-xl font-bold gradient-text">TikDown</span>
+            </div>
+            <button onclick="openSettings()" class="p-2 text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors" title="Configurações">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main -->
+    <main class="flex-1 flex items-center justify-center px-4 py-12">
+        <div class="w-full max-w-xl space-y-4">
+
+            <!-- Hero -->
+            <div class="text-center mb-8">
+                <h1 class="text-4xl font-bold mb-3 leading-tight">
+                    Baixe vídeos do<br><span class="gradient-text">TikTok</span> sem marca d'água
+                </h1>
+                <p class="text-gray-400 text-sm">Rápido · Alta qualidade · 1º frame disponível</p>
+            </div>
+
+            <!-- Input card -->
+            <div class="bg-[#141414] rounded-2xl p-5 border border-white/5 shadow-xl">
+                <div class="flex gap-2 mb-4">
+                    <input id="url-input" type="url"
+                        placeholder="Cole o link do TikTok aqui..."
+                        class="flex-1 bg-[#1e1e1e] border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-white/30 transition-colors placeholder-gray-600"
+                        onkeydown="if(event.key==='Enter') startDownload('video')" />
+                    <button onclick="pasteURL()" title="Colar da área de transferência"
+                        class="px-3.5 bg-[#1e1e1e] border border-white/10 rounded-xl hover:bg-[#252525] transition-colors text-gray-400 hover:text-white flex-shrink-0">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="flex gap-2.5">
+                    <button id="btn-video" onclick="startDownload('video')"
+                        class="flex-1 btn-red text-white font-semibold py-3 rounded-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2 text-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                        Baixar Vídeo
+                    </button>
+                    <button id="btn-thumb" onclick="startDownload('thumbnail')"
+                        class="flex-1 bg-[#1e1e1e] border border-white/10 text-white font-semibold py-3 rounded-xl hover:bg-[#252525] transition-colors flex items-center justify-center gap-2 text-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        </svg>
+                        1º Frame
+                    </button>
+                </div>
+
+                <div id="status" class="hidden mt-3 text-sm text-center px-4 py-2.5 rounded-xl"></div>
+            </div>
+
+            <!-- API Reference -->
+            <div class="bg-[#141414] rounded-2xl border border-white/5 overflow-hidden">
+                <button onclick="toggleSection('api-body', 'api-chev')"
+                    class="w-full flex items-center justify-between px-5 py-4 text-sm font-medium text-gray-300 hover:text-white transition-colors">
+                    <span class="flex items-center gap-2">
+                        <svg class="w-4 h-4 text-[#00f2ea]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+                        </svg>
+                        API Reference
+                    </span>
+                    <svg id="api-chev" class="w-4 h-4 transition-transform text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                <div id="api-body" class="hidden px-5 pb-5 space-y-3 text-xs">
+                    <p class="text-gray-500">Envie o header <code class="bg-white/5 px-1.5 py-0.5 rounded text-gray-300 font-mono">X-API-Key: sua-chave</code> em todas as requisições.</p>
+
+                    <div class="bg-[#0d0d0d] rounded-xl p-4 font-mono space-y-0.5">
+                        <div class="text-gray-500">GET /api/info?url={url}</div>
+                        <div class="text-yellow-400">→ JSON com metadados</div>
+                    </div>
+                    <div class="bg-[#0d0d0d] rounded-xl p-4 font-mono space-y-0.5">
+                        <div class="text-gray-500">POST /api/download</div>
+                        <div class="text-gray-400">{"url": "https://tiktok.com/..."}</div>
+                        <div class="text-[#00f2ea]">→ arquivo MP4 (sem marca d'água)</div>
+                    </div>
+                    <div class="bg-[#0d0d0d] rounded-xl p-4 font-mono space-y-0.5">
+                        <div class="text-gray-500">POST /api/thumbnail</div>
+                        <div class="text-gray-400">{"url": "https://tiktok.com/..."}</div>
+                        <div class="text-[#ff0050]">→ image/jpeg (1º frame do vídeo)</div>
+                    </div>
+
+                    <a href="/docs" class="inline-flex items-center gap-1 text-[#00f2ea] hover:underline mt-1">
+                        Documentação completa (Swagger) →
+                    </a>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <footer class="border-t border-white/5 py-4 text-center text-xs text-gray-600">
+        <a href="/admin.html" class="hover:text-gray-400 transition-colors">Admin Panel</a>
+        <span class="mx-2 text-gray-800">·</span>
+        <a href="/docs" class="hover:text-gray-400 transition-colors">Swagger Docs</a>
+    </footer>
+
+<script>
+    const BTN_VIDEO_DEFAULT = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>Baixar Vídeo`;
+    const BTN_THUMB_DEFAULT = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>1º Frame`;
+    const SPINNER = `<svg class="w-4 h-4 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>Processando...`;
+
+    function getApiKey() { return localStorage.getItem('tt_api_key') || ''; }
+
+    function openSettings() {
+        const k = getApiKey();
+        if (k) document.getElementById('settings-api-key').value = k;
+        document.getElementById('settings-panel').classList.remove('hidden');
+        document.getElementById('settings-overlay').classList.remove('hidden');
+    }
+
+    function closeSettings() {
+        document.getElementById('settings-panel').classList.add('hidden');
+        document.getElementById('settings-overlay').classList.add('hidden');
+    }
+
+    function saveSettings() {
+        const k = document.getElementById('settings-api-key').value.trim();
+        if (k) { localStorage.setItem('tt_api_key', k); showStatus('✓ API Key salva!', 'success'); }
+        else { localStorage.removeItem('tt_api_key'); showStatus('API Key removida.', 'neutral'); }
+        closeSettings();
+    }
+
+    async function pasteURL() {
+        try {
+            const t = await navigator.clipboard.readText();
+            document.getElementById('url-input').value = t;
+        } catch { document.getElementById('url-input').focus(); }
+    }
+
+    function showStatus(msg, type = 'neutral') {
+        const el = document.getElementById('status');
+        el.className = 'mt-3 text-sm text-center px-4 py-2.5 rounded-xl';
+        if (type === 'success') el.classList.add('bg-green-500/10', 'text-green-400');
+        else if (type === 'error')  el.classList.add('bg-red-500/10',   'text-red-400');
+        else                        el.classList.add('bg-white/5',       'text-gray-300');
+        el.textContent = msg;
+        el.classList.remove('hidden');
+    }
+
+    function setBusy(type, busy) {
+        const v = document.getElementById('btn-video');
+        const t = document.getElementById('btn-thumb');
+        if (busy) {
+            v.disabled = t.disabled = true;
+            if (type === 'video')     { v.innerHTML = SPINNER; }
+            else                      { t.innerHTML = SPINNER; }
+        } else {
+            v.disabled = t.disabled = false;
+            v.innerHTML = BTN_VIDEO_DEFAULT;
+            t.innerHTML = BTN_THUMB_DEFAULT;
+        }
+    }
+
+    async function startDownload(type) {
+        const url = document.getElementById('url-input').value.trim();
+        if (!url) { showStatus('Cole um link do TikTok primeiro.', 'error'); return; }
+
+        const endpoint = type === 'video' ? '/api/download' : '/api/thumbnail';
+        const ext = type === 'video' ? 'mp4' : 'jpg';
+
+        setBusy(type, true);
+        showStatus('Processando... pode levar alguns segundos.', 'neutral');
+
+        try {
+            const headers = { 'Content-Type': 'application/json' };
+            const apiKey = getApiKey();
+            if (apiKey) headers['X-API-Key'] = apiKey;
+
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ url }),
+            });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ detail: 'Erro desconhecido' }));
+                if (res.status === 401) {
+                    showStatus('API Key inválida. Configure nas ⚙️ configurações.', 'error');
+                } else {
+                    throw new Error(err.detail || `Erro ${res.status}`);
+                }
+                return;
+            }
+
+            const blob = await res.blob();
+            const cd = res.headers.get('content-disposition') || '';
+            const match = cd.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+            const filename = match ? match[1].replace(/['"]/g, '') : `download.${ext}`;
+
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+
+            showStatus(`✓ ${type === 'video' ? 'Vídeo' : 'Imagem'} baixado com sucesso!`, 'success');
+        } catch (err) {
+            showStatus(`Erro: ${err.message}`, 'error');
+        } finally {
+            setBusy(type, false);
+        }
+    }
+
+    function toggleSection(bodyId, chevId) {
+        const body = document.getElementById(bodyId);
+        const chev = document.getElementById(chevId);
+        body.classList.toggle('hidden');
+        chev.style.transform = body.classList.contains('hidden') ? '' : 'rotate(180deg)';
+    }
+
+    // On load: hint if no API key
+    window.addEventListener('load', () => {
+        if (!getApiKey()) {
+            fetch('/api/info?url=x').then(r => {
+                if (r.status === 401)
+                    showStatus('Configure sua API Key nas ⚙️ configurações para usar o TikDown.', 'neutral');
+            }).catch(() => {});
+        }
+    });
+</script>
+</body>
+</html>

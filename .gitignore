@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+api_keys.json
+data/
+/tmp/

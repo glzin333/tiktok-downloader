@@ -3,6 +3,7 @@ import re
 import json
 import uuid
 import time
+import base64
 import secrets
 import subprocess
 import shutil
@@ -12,7 +13,7 @@ from typing import Optional
 from collections import defaultdict
 
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader, APIKeyQuery
@@ -225,6 +226,59 @@ async def get_thumbnail(req: URLRequest, bg: BackgroundTasks, _=Depends(get_api_
 
         bg.add_task(shutil.rmtree, work, True)
         return FileResponse(str(thumb), media_type="image/jpeg", filename=filename)
+
+    except HTTPException:
+        shutil.rmtree(work, True)
+        raise
+    except Exception as e:
+        shutil.rmtree(work, True)
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/thumbnail/base64")
+async def get_thumbnail_base64(req: URLRequest, bg: BackgroundTasks, _=Depends(get_api_key)):
+    """Extrai o 1º frame e retorna como JSON com image_base64 — ideal para n8n + Claude."""
+    validate_tiktok_url(req.url)
+    work = Path(TEMP_DIR) / str(uuid.uuid4())
+    work.mkdir(parents=True)
+    try:
+        opts = {
+            "format": "best[ext=mp4]/best",
+            "outtmpl": str(work / "%(id)s.%(ext)s"),
+            "quiet": True,
+            "no_warnings": True,
+            "nocheckcertificate": True,
+            "concurrent_fragment_downloads": 4,
+        }
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(req.url, download=True)
+
+        files = list(work.glob("*"))
+        if not files:
+            raise HTTPException(500, "Download falhou")
+
+        video_file = files[0]
+        thumb = work / "frame.jpg"
+
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", str(video_file), "-vframes", "1", "-q:v", "2", str(thumb)],
+            capture_output=True, timeout=60,
+        )
+
+        if not thumb.exists():
+            raise HTTPException(500, f"Extração de frame falhou: {result.stderr.decode()[-400:]}")
+
+        image_base64 = base64.b64encode(thumb.read_bytes()).decode("utf-8")
+
+        bg.add_task(shutil.rmtree, work, True)
+        return JSONResponse({
+            "id": info.get("id"),
+            "title": info.get("title"),
+            "uploader": info.get("uploader"),
+            "duration": info.get("duration"),
+            "image_base64": image_base64,
+            "image_media_type": "image/jpeg",
+        })
 
     except HTTPException:
         shutil.rmtree(work, True)

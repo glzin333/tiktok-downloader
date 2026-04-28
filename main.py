@@ -175,6 +175,8 @@ async def upload_to_gemini(req: GeminiUploadRequest, bg: BackgroundTasks, _=Depe
             "no_warnings": True,
             "nocheckcertificate": True,
             "concurrent_fragment_downloads": 4,
+            "socket_timeout": 30,
+            "retries": 3,
         }
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(req.url, download=True)

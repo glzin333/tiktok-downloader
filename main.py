@@ -138,7 +138,7 @@ async def download_video(req: URLRequest, bg: BackgroundTasks, _=Depends(get_api
             raise HTTPException(500, "Download não produziu arquivo de saída")
 
         video_file = files[0]
-        filename = f"{_safe_filename(info.get('title', 'video'))}{video_file.suffix}"
+        filename = f"tiktok_{info.get('id', 'video')}{video_file.suffix}"
 
         bg.add_task(shutil.rmtree, work, True)
         return FileResponse(str(video_file), media_type="video/mp4", filename=filename)

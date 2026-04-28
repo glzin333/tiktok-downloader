@@ -123,11 +123,12 @@ async def download_video(req: URLRequest, bg: BackgroundTasks, _=Depends(get_api
     work.mkdir(parents=True)
     try:
         opts = {
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "format": "best[ext=mp4]/best",
             "outtmpl": str(work / "%(id)s.%(ext)s"),
             "quiet": True,
             "no_warnings": True,
             "nocheckcertificate": True,
+            "concurrent_fragment_downloads": 4,
         }
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(req.url, download=True)
@@ -157,11 +158,12 @@ async def get_thumbnail(req: URLRequest, bg: BackgroundTasks, _=Depends(get_api_
     work.mkdir(parents=True)
     try:
         opts = {
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "format": "best[ext=mp4]/best",
             "outtmpl": str(work / "%(id)s.%(ext)s"),
             "quiet": True,
             "no_warnings": True,
             "nocheckcertificate": True,
+            "concurrent_fragment_downloads": 4,
         }
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(req.url, download=True)

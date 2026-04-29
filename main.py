@@ -190,7 +190,9 @@ async def upload_to_gemini(req: GeminiUploadRequest, bg: BackgroundTasks, _=Depe
 
         subprocess.run([
             "ffmpeg", "-y", "-i", str(source),
-            "-vcodec", "libx264", "-acodec", "aac",
+            "-vcodec", "libx264", "-preset", "ultrafast", "-crf", "28",
+            "-vf", "scale=-2:720",
+            "-acodec", "aac", "-b:a", "96k",
             "-movflags", "+faststart",
             str(converted)
         ], capture_output=True, timeout=120)
@@ -292,7 +294,9 @@ async def download_for_gemini(req: URLRequest, bg: BackgroundTasks, _=Depends(ge
 
         subprocess.run([
             "ffmpeg", "-y", "-i", str(source),
-            "-vcodec", "libx264", "-acodec", "aac",
+            "-vcodec", "libx264", "-preset", "ultrafast", "-crf", "28",
+            "-vf", "scale=-2:720",
+            "-acodec", "aac", "-b:a", "96k",
             "-movflags", "+faststart",
             str(converted)
         ], capture_output=True, timeout=120)

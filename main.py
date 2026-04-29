@@ -499,6 +499,7 @@ async def run_video(req: RunVideoRequest, _=Depends(get_api_key)):
                 f"{RUNNINGHUB_BASE}/task/openapi/upload",
                 headers={"Authorization": f"Bearer {req.runninghub_key}"},
                 files={"file": ("image.png", img_resp.content, "image/png")},
+                data={"apiKey": req.runninghub_key},
             )
         print(f"[DRIFT] upload status={upload_resp.status_code} body={upload_resp.text[:300]}")
         if upload_resp.status_code != 200:

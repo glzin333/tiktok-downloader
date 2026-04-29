@@ -499,12 +499,25 @@ async def run_image(req: RunImageRequest, _=Depends(get_api_key)):
         if out_resp.status_code != 200:
             raise HTTPException(500, f"RunningHub outputs falhou: {out_resp.text[:500]}")
 
-        outputs = out_resp.json().get("data") or []
-        if not outputs:
+        out_data = out_resp.json().get("data") or []
+        if not out_data:
             raise HTTPException(500, f"Nenhum output retornado. Resposta: {out_resp.text[:500]}")
 
-        first = outputs[0] if isinstance(outputs, list) else outputs
-        image_url = first.get("fileUrl") or first.get("url") or first.get("imageUrl")
+        # Normaliza diferentes formatos de resposta do RunningHub
+        if isinstance(out_data, str):
+            image_url = out_data
+            outputs = [out_data]
+        elif isinstance(out_data, list):
+            outputs = out_data
+            first = out_data[0]
+            image_url = first if isinstance(first, str) else (
+                first.get("fileUrl") or first.get("url") or first.get("imageUrl")
+            )
+        elif isinstance(out_data, dict):
+            outputs = [out_data]
+            image_url = out_data.get("fileUrl") or out_data.get("url") or out_data.get("imageUrl")
+        else:
+            raise HTTPException(500, f"Formato de output inesperado: {out_resp.text[:500]}")
 
         return JSONResponse({
             "task_id": task_id,

@@ -3,6 +3,7 @@ import re
 import json
 import uuid
 import time
+import asyncio
 import base64
 import secrets
 import subprocess
@@ -214,6 +215,23 @@ async def upload_to_gemini(req: GeminiUploadRequest, bg: BackgroundTasks, _=Depe
             raise HTTPException(500, f"Upload Gemini falhou: {resp.text[:300]}")
 
         file_data = resp.json().get("file", {})
+        file_name = file_data.get("name")
+
+        # Aguarda o arquivo ficar ACTIVE (polling)
+        status_url = f"https://generativelanguage.googleapis.com/v1beta/{file_name}?key={req.gemini_key}"
+        async with httpx.AsyncClient(timeout=60) as client:
+            for _ in range(20):
+                await asyncio.sleep(3)
+                status_resp = await client.get(status_url)
+                if status_resp.status_code == 200:
+                    state = status_resp.json().get("state", "")
+                    if state == "ACTIVE":
+                        file_data = status_resp.json()
+                        break
+                    if state == "FAILED":
+                        raise HTTPException(500, "Gemini falhou ao processar o arquivo")
+            else:
+                raise HTTPException(500, "Timeout aguardando Gemini processar o arquivo")
 
         bg.add_task(shutil.rmtree, work, True)
         return JSONResponse({

@@ -434,8 +434,8 @@ async def get_thumbnail_base64(req: URLRequest, bg: BackgroundTasks, _=Depends(g
 
 # ── RunningHub ───────────────────────────────────────────────────────────────
 RUNNINGHUB_BASE = "https://www.runninghub.ai"
-RUNNINGHUB_WORKFLOW_ID = os.getenv("RUNNINGHUB_WORKFLOW_ID", "2049468055578746881")
-RUNNINGHUB_NODE_ID = os.getenv("RUNNINGHUB_NODE_ID", "39")
+RUNNINGHUB_WORKFLOW_ID = os.getenv("RUNNINGHUB_WORKFLOW_ID", "2049480632044097538")
+RUNNINGHUB_NODE_ID = os.getenv("RUNNINGHUB_NODE_ID", "45")
 
 
 class RunImageRequest(BaseModel):

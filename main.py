@@ -467,7 +467,13 @@ async def run_image(req: RunImageRequest, _=Depends(get_api_key)):
             raise HTTPException(500, f"RunningHub create falhou ({create_resp.status_code}): {create_resp.text[:500]}")
 
         create_data = create_resp.json()
-        task_id = create_data.get("data", {}).get("taskId") or create_data.get("taskId")
+        raw = create_data.get("data")
+        if isinstance(raw, str):
+            task_id = raw
+        elif isinstance(raw, dict):
+            task_id = raw.get("taskId")
+        else:
+            task_id = create_data.get("taskId")
         if not task_id:
             raise HTTPException(500, f"taskId não retornado. Resposta: {create_resp.text[:500]}")
 

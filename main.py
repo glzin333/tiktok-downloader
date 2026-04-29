@@ -447,9 +447,15 @@ class RunImageRequest(BaseModel):
 async def run_image(req: RunImageRequest, _=Depends(get_api_key)):
     """Dispara workflow de imagem no RunningHub e aguarda o resultado."""
     try:
+        auth_headers = {
+            "Authorization": f"Bearer {req.runninghub_key}",
+            "Content-Type": "application/json",
+        }
+
         async with httpx.AsyncClient(timeout=30) as client:
             create_resp = await client.post(
                 f"{RUNNINGHUB_BASE}/task/openapi/create",
+                headers=auth_headers,
                 json={
                     "workflowId": RUNNINGHUB_WORKFLOW_ID,
                     "apiKey": req.runninghub_key,
@@ -477,17 +483,19 @@ async def run_image(req: RunImageRequest, _=Depends(get_api_key)):
         if not task_id:
             raise HTTPException(500, f"taskId não retornado. Resposta: {create_resp.text[:500]}")
 
-        # Polling até SUCCESS (máx 5 min)
+        # Polling até SUCCESS (máx 5 min) — data é string direta: "QUEUED"/"RUNNING"/"SUCCESS"/"FAILED"
         async with httpx.AsyncClient(timeout=30) as client:
             for _ in range(60):
                 await asyncio.sleep(5)
                 status_resp = await client.post(
                     f"{RUNNINGHUB_BASE}/task/openapi/status",
+                    headers=auth_headers,
                     json={"taskId": task_id, "apiKey": req.runninghub_key},
                 )
                 if status_resp.status_code != 200:
                     continue
-                status = status_resp.json().get("data", {}).get("taskStatus") or status_resp.json().get("taskStatus", "")
+                status_data = status_resp.json().get("data", "")
+                status = status_data if isinstance(status_data, str) else status_data.get("taskStatus", "")
                 if status == "SUCCESS":
                     break
                 if status == "FAILED":
@@ -499,6 +507,7 @@ async def run_image(req: RunImageRequest, _=Depends(get_api_key)):
         async with httpx.AsyncClient(timeout=30) as client:
             out_resp = await client.post(
                 f"{RUNNINGHUB_BASE}/task/openapi/outputs",
+                headers=auth_headers,
                 json={"taskId": task_id, "apiKey": req.runninghub_key},
             )
 

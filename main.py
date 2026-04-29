@@ -432,6 +432,86 @@ async def get_thumbnail_base64(req: URLRequest, bg: BackgroundTasks, _=Depends(g
         raise HTTPException(500, str(e))
 
 
+# ── RunningHub ───────────────────────────────────────────────────────────────
+RUNNINGHUB_BASE = "https://www.runninghub.ai"
+RUNNINGHUB_WORKFLOW_ID = os.getenv("RUNNINGHUB_WORKFLOW_ID", "2049468055578746881")
+RUNNINGHUB_NODE_ID = os.getenv("RUNNINGHUB_NODE_ID", "39")
+
+
+class RunImageRequest(BaseModel):
+    prompt: str
+    runninghub_key: str
+
+
+@app.post("/api/run/image")
+async def run_image(req: RunImageRequest, _=Depends(get_api_key)):
+    """Dispara workflow de imagem no RunningHub e aguarda o resultado."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        create_resp = await client.post(
+            f"{RUNNINGHUB_BASE}/task/openapi/create",
+            json={
+                "workflowId": RUNNINGHUB_WORKFLOW_ID,
+                "apiKey": req.runninghub_key,
+                "nodeInfoList": [
+                    {
+                        "nodeId": RUNNINGHUB_NODE_ID,
+                        "fieldName": "text",
+                        "fieldValue": req.prompt,
+                    }
+                ],
+            },
+        )
+
+    if create_resp.status_code != 200:
+        raise HTTPException(500, f"RunningHub create falhou: {create_resp.text[:300]}")
+
+    create_data = create_resp.json()
+    task_id = create_data.get("data", {}).get("taskId") or create_data.get("taskId")
+    if not task_id:
+        raise HTTPException(500, f"taskId não retornado: {create_resp.text[:300]}")
+
+    # Polling até SUCCESS (máx 5 min)
+    async with httpx.AsyncClient(timeout=30) as client:
+        for _ in range(60):
+            await asyncio.sleep(5)
+            status_resp = await client.post(
+                f"{RUNNINGHUB_BASE}/task/openapi/status",
+                json={"taskId": task_id, "apiKey": req.runninghub_key},
+            )
+            if status_resp.status_code != 200:
+                continue
+            status = status_resp.json().get("data", {}).get("taskStatus") or status_resp.json().get("taskStatus", "")
+            if status == "SUCCESS":
+                break
+            if status == "FAILED":
+                raise HTTPException(500, "RunningHub: geração falhou")
+        else:
+            raise HTTPException(500, "Timeout aguardando RunningHub")
+
+    # Busca outputs
+    async with httpx.AsyncClient(timeout=30) as client:
+        out_resp = await client.post(
+            f"{RUNNINGHUB_BASE}/task/openapi/outputs",
+            json={"taskId": task_id, "apiKey": req.runninghub_key},
+        )
+
+    if out_resp.status_code != 200:
+        raise HTTPException(500, f"RunningHub outputs falhou: {out_resp.text[:300]}")
+
+    outputs = out_resp.json().get("data") or []
+    if not outputs:
+        raise HTTPException(500, "Nenhum output retornado pelo RunningHub")
+
+    first = outputs[0] if isinstance(outputs, list) else outputs
+    image_url = first.get("fileUrl") or first.get("url") or first.get("imageUrl")
+
+    return JSONResponse({
+        "task_id": task_id,
+        "image_url": image_url,
+        "outputs": outputs,
+    })
+
+
 # ── Admin ─────────────────────────────────────────────────────────────────────
 @app.get("/admin/keys")
 async def list_keys(_=Depends(require_admin)):

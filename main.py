@@ -436,11 +436,177 @@ async def get_thumbnail_base64(req: URLRequest, bg: BackgroundTasks, _=Depends(g
 RUNNINGHUB_BASE = "https://www.runninghub.ai"
 RUNNINGHUB_WORKFLOW_ID = os.getenv("RUNNINGHUB_WORKFLOW_ID", "2049480632044097538")
 RUNNINGHUB_NODE_ID = os.getenv("RUNNINGHUB_NODE_ID", "45")
+RUNNINGHUB_VIDEO_WORKFLOW_ID = os.getenv("RUNNINGHUB_VIDEO_WORKFLOW_ID", "2049538202083528705")
+RUNNINGHUB_VIDEO_IMAGE_NODE = os.getenv("RUNNINGHUB_VIDEO_IMAGE_NODE", "52")
+RUNNINGHUB_VIDEO_PROMPT_NODE = os.getenv("RUNNINGHUB_VIDEO_PROMPT_NODE", "6")
 
 
 class RunImageRequest(BaseModel):
     prompt: str
     runninghub_key: str
+
+
+@app.post("/api/run/ping")
+async def run_ping(req: RunImageRequest, _=Depends(get_api_key)):
+    """Testa conectividade e autenticação com RunningHub sem gerar imagem."""
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{RUNNINGHUB_BASE}/task/openapi/create",
+                headers={"Authorization": f"Bearer {req.runninghub_key}", "Content-Type": "application/json"},
+                json={
+                    "workflowId": RUNNINGHUB_WORKFLOW_ID,
+                    "apiKey": req.runninghub_key,
+                    "nodeInfoList": [{"nodeId": RUNNINGHUB_NODE_ID, "fieldName": "text", "fieldValue": "test"}],
+                },
+            )
+        return JSONResponse({
+            "http_status": resp.status_code,
+            "body": resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text[:500],
+            "workflow_id": RUNNINGHUB_WORKFLOW_ID,
+            "node_id": RUNNINGHUB_NODE_ID,
+        })
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+class RunVideoRequest(BaseModel):
+    image_url: str
+    motion_prompt: str
+    runninghub_key: str
+
+
+@app.post("/api/run/video")
+async def run_video(req: RunVideoRequest, _=Depends(get_api_key)):
+    """Operação DRIFT — anima imagem do FORGE via RunningHub img2video."""
+    try:
+        auth_headers = {
+            "Authorization": f"Bearer {req.runninghub_key}",
+            "Content-Type": "application/json",
+        }
+
+        # 1. Download da imagem gerada pelo FORGE
+        print(f"[DRIFT] Baixando imagem: {req.image_url}")
+        async with httpx.AsyncClient(timeout=30) as client:
+            img_resp = await client.get(req.image_url)
+        if img_resp.status_code != 200:
+            raise HTTPException(500, f"Falha ao baixar imagem: {img_resp.status_code}")
+
+        # 2. Upload da imagem para o RunningHub
+        print("[DRIFT] Fazendo upload da imagem no RunningHub")
+        async with httpx.AsyncClient(timeout=60) as client:
+            upload_resp = await client.post(
+                f"{RUNNINGHUB_BASE}/task/openapi/upload",
+                headers={"Authorization": f"Bearer {req.runninghub_key}"},
+                files={"file": ("image.png", img_resp.content, "image/png")},
+            )
+        print(f"[DRIFT] upload status={upload_resp.status_code} body={upload_resp.text[:300]}")
+        if upload_resp.status_code != 200:
+            raise HTTPException(500, f"Upload RunningHub falhou: {upload_resp.text[:300]}")
+
+        upload_data = upload_resp.json()
+        raw = upload_data.get("data")
+        if isinstance(raw, dict):
+            file_name = raw.get("fileName") or raw.get("filename") or raw.get("name")
+        elif isinstance(raw, str):
+            file_name = raw
+        else:
+            file_name = upload_data.get("fileName") or upload_data.get("filename")
+        if not file_name:
+            raise HTTPException(500, f"fileName não retornado. Resposta: {upload_resp.text[:300]}")
+
+        # 3. Cria task img2video
+        print(f"[DRIFT] Criando task — workflow={RUNNINGHUB_VIDEO_WORKFLOW_ID} image={file_name}")
+        async with httpx.AsyncClient(timeout=30) as client:
+            create_resp = await client.post(
+                f"{RUNNINGHUB_BASE}/task/openapi/create",
+                headers=auth_headers,
+                json={
+                    "workflowId": RUNNINGHUB_VIDEO_WORKFLOW_ID,
+                    "apiKey": req.runninghub_key,
+                    "nodeInfoList": [
+                        {"nodeId": RUNNINGHUB_VIDEO_IMAGE_NODE, "fieldName": "image", "fieldValue": file_name},
+                        {"nodeId": RUNNINGHUB_VIDEO_PROMPT_NODE, "fieldName": "text", "fieldValue": req.motion_prompt},
+                    ],
+                },
+            )
+        print(f"[DRIFT] create status={create_resp.status_code} body={create_resp.text[:300]}")
+        if create_resp.status_code != 200:
+            raise HTTPException(500, f"RunningHub create falhou: {create_resp.text[:500]}")
+
+        create_data = create_resp.json()
+        raw = create_data.get("data")
+        if isinstance(raw, str):
+            task_id = raw
+        elif isinstance(raw, dict):
+            task_id = raw.get("taskId")
+        else:
+            task_id = create_data.get("taskId")
+        if not task_id:
+            raise HTTPException(500, f"taskId não retornado. Resposta: {create_resp.text[:500]}")
+
+        # 4. Polling até SUCCESS (máx 10 min — vídeo demora mais que imagem)
+        print(f"[DRIFT] task_id={task_id} — iniciando polling")
+        async with httpx.AsyncClient(timeout=10) as client:
+            for i in range(120):
+                await asyncio.sleep(5)
+                try:
+                    status_resp = await client.post(
+                        f"{RUNNINGHUB_BASE}/task/openapi/status",
+                        headers=auth_headers,
+                        json={"taskId": task_id, "apiKey": req.runninghub_key},
+                    )
+                except Exception as e:
+                    print(f"[DRIFT] polling #{i} erro: {e}")
+                    continue
+                print(f"[DRIFT] polling #{i} status={status_resp.status_code} body={status_resp.text[:200]}")
+                if status_resp.status_code != 200:
+                    continue
+                status_data = status_resp.json().get("data", "")
+                status = status_data if isinstance(status_data, str) else status_data.get("taskStatus", "")
+                if status == "SUCCESS":
+                    break
+                if status == "FAILED":
+                    raise HTTPException(500, "RunningHub DRIFT: geração de vídeo falhou")
+            else:
+                raise HTTPException(500, "Timeout aguardando RunningHub DRIFT")
+
+        # 5. Busca outputs
+        async with httpx.AsyncClient(timeout=30) as client:
+            out_resp = await client.post(
+                f"{RUNNINGHUB_BASE}/task/openapi/outputs",
+                headers=auth_headers,
+                json={"taskId": task_id, "apiKey": req.runninghub_key},
+            )
+        print(f"[DRIFT] outputs status={out_resp.status_code} body={out_resp.text[:300]}")
+        if out_resp.status_code != 200:
+            raise HTTPException(500, f"RunningHub outputs falhou: {out_resp.text[:500]}")
+
+        out_json = out_resp.json()
+        out_data = out_json.get("results") or out_json.get("data") or []
+        if not out_data:
+            raise HTTPException(500, f"Nenhum output retornado. Resposta: {out_resp.text[:500]}")
+
+        if isinstance(out_data, list):
+            first = out_data[0]
+            video_url = first if isinstance(first, str) else (
+                first.get("fileUrl") or first.get("url") or first.get("videoUrl")
+            )
+        elif isinstance(out_data, dict):
+            video_url = out_data.get("fileUrl") or out_data.get("url") or out_data.get("videoUrl")
+        else:
+            video_url = str(out_data)
+
+        return JSONResponse({
+            "task_id": task_id,
+            "video_url": video_url,
+            "outputs": out_data if isinstance(out_data, list) else [out_data],
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Erro interno DRIFT: {str(e)}")
 
 
 @app.post("/api/run/image")
@@ -452,6 +618,7 @@ async def run_image(req: RunImageRequest, _=Depends(get_api_key)):
             "Content-Type": "application/json",
         }
 
+        print(f"[RunningHub] Criando task — workflow={RUNNINGHUB_WORKFLOW_ID} node={RUNNINGHUB_NODE_ID}")
         async with httpx.AsyncClient(timeout=30) as client:
             create_resp = await client.post(
                 f"{RUNNINGHUB_BASE}/task/openapi/create",
@@ -469,6 +636,7 @@ async def run_image(req: RunImageRequest, _=Depends(get_api_key)):
                 },
             )
 
+        print(f"[RunningHub] create status={create_resp.status_code} body={create_resp.text[:300]}")
         if create_resp.status_code != 200:
             raise HTTPException(500, f"RunningHub create falhou ({create_resp.status_code}): {create_resp.text[:500]}")
 
@@ -483,15 +651,20 @@ async def run_image(req: RunImageRequest, _=Depends(get_api_key)):
         if not task_id:
             raise HTTPException(500, f"taskId não retornado. Resposta: {create_resp.text[:500]}")
 
-        # Polling até SUCCESS (máx 5 min) — data é string direta: "QUEUED"/"RUNNING"/"SUCCESS"/"FAILED"
-        async with httpx.AsyncClient(timeout=30) as client:
-            for _ in range(60):
+        print(f"[RunningHub] task_id={task_id} — iniciando polling")
+        async with httpx.AsyncClient(timeout=10) as client:
+            for i in range(60):
                 await asyncio.sleep(5)
-                status_resp = await client.post(
-                    f"{RUNNINGHUB_BASE}/task/openapi/status",
-                    headers=auth_headers,
-                    json={"taskId": task_id, "apiKey": req.runninghub_key},
-                )
+                try:
+                    status_resp = await client.post(
+                        f"{RUNNINGHUB_BASE}/task/openapi/status",
+                        headers=auth_headers,
+                        json={"taskId": task_id, "apiKey": req.runninghub_key},
+                    )
+                except Exception as e:
+                    print(f"[RunningHub] polling #{i} erro: {e}")
+                    continue
+                print(f"[RunningHub] polling #{i} status={status_resp.status_code} body={status_resp.text[:200]}")
                 if status_resp.status_code != 200:
                     continue
                 status_data = status_resp.json().get("data", "")
@@ -514,11 +687,12 @@ async def run_image(req: RunImageRequest, _=Depends(get_api_key)):
         if out_resp.status_code != 200:
             raise HTTPException(500, f"RunningHub outputs falhou: {out_resp.text[:500]}")
 
-        out_data = out_resp.json().get("data") or []
+        out_json = out_resp.json()
+        # RunningHub retorna results no topo ({"results": [...]}) ou dentro de data
+        out_data = out_json.get("results") or out_json.get("data") or []
         if not out_data:
             raise HTTPException(500, f"Nenhum output retornado. Resposta: {out_resp.text[:500]}")
 
-        # Normaliza diferentes formatos de resposta do RunningHub
         if isinstance(out_data, str):
             image_url = out_data
             outputs = [out_data]
@@ -526,11 +700,11 @@ async def run_image(req: RunImageRequest, _=Depends(get_api_key)):
             outputs = out_data
             first = out_data[0]
             image_url = first if isinstance(first, str) else (
-                first.get("fileUrl") or first.get("url") or first.get("imageUrl")
+                first.get("url") or first.get("fileUrl") or first.get("imageUrl")
             )
         elif isinstance(out_data, dict):
             outputs = [out_data]
-            image_url = out_data.get("fileUrl") or out_data.get("url") or out_data.get("imageUrl")
+            image_url = out_data.get("url") or out_data.get("fileUrl") or out_data.get("imageUrl")
         else:
             raise HTTPException(500, f"Formato de output inesperado: {out_resp.text[:500]}")
 

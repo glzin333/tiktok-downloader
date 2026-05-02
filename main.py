@@ -13,6 +13,7 @@ import httpx
 from pathlib import Path
 from typing import Optional
 from collections import defaultdict
+from urllib.parse import urlparse, parse_qs
 
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -430,6 +431,57 @@ async def get_thumbnail_base64(req: URLRequest, bg: BackgroundTasks, _=Depends(g
     except Exception as e:
         shutil.rmtree(work, True)
         raise HTTPException(500, str(e))
+
+
+@app.post("/api/product/image")
+async def get_product_image(req: URLRequest, _=Depends(get_api_key)):
+    """Extrai imagem principal de produto TikTok Shop a partir de link curto (vt.tiktok.com)."""
+    validate_tiktok_url(req.url)
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+            resp = await client.get(req.url, headers={
+                "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120"
+            })
+
+        location = resp.headers.get("location", "")
+        if not location:
+            raise HTTPException(400, "Link não redirecionou — verifique se é um link de produto TikTok Shop")
+
+        parsed = urlparse(location)
+        params = parse_qs(parsed.query)
+        og_info_raw = params.get("og_info", [None])[0]
+        if not og_info_raw:
+            raise HTTPException(400, "Dados do produto não encontrados — verifique se é um link de produto TikTok Shop")
+
+        og_info = json.loads(og_info_raw)
+        image_url = og_info.get("image")
+        product_title = og_info.get("title", "")
+
+        if not image_url:
+            raise HTTPException(400, "Imagem do produto não encontrada")
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            img_resp = await client.get(image_url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            })
+
+        if img_resp.status_code != 200:
+            raise HTTPException(500, f"Falha ao baixar imagem do produto: {img_resp.status_code}")
+
+        content_type = img_resp.headers.get("content-type", "image/png").split(";")[0]
+        image_base64 = base64.b64encode(img_resp.content).decode("utf-8")
+
+        return JSONResponse({
+            "product_title": product_title,
+            "image_url": image_url,
+            "image_base64": image_base64,
+            "image_media_type": content_type,
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Erro ao extrair imagem do produto: {str(e)}")
 
 
 # ── RunningHub ───────────────────────────────────────────────────────────────

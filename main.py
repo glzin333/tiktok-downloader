@@ -486,11 +486,11 @@ async def get_product_image(req: URLRequest, _=Depends(get_api_key)):
 
 # ── RunningHub ───────────────────────────────────────────────────────────────
 RUNNINGHUB_BASE = "https://www.runninghub.ai"
-RUNNINGHUB_WORKFLOW_ID = os.getenv("RUNNINGHUB_WORKFLOW_ID", "2049480632044097538")
+RUNNINGHUB_WORKFLOW_ID = os.getenv("RUNNINGHUB_WORKFLOW_ID", "2048756877705617410")
 RUNNINGHUB_NODE_ID = os.getenv("RUNNINGHUB_NODE_ID", "45")
-RUNNINGHUB_VIDEO_WORKFLOW_ID = os.getenv("RUNNINGHUB_VIDEO_WORKFLOW_ID", "2049538202083528705")
-RUNNINGHUB_VIDEO_IMAGE_NODE = os.getenv("RUNNINGHUB_VIDEO_IMAGE_NODE", "52")
-RUNNINGHUB_VIDEO_PROMPT_NODE = os.getenv("RUNNINGHUB_VIDEO_PROMPT_NODE", "6")
+RUNNINGHUB_VIDEO_WORKFLOW_ID = os.getenv("RUNNINGHUB_VIDEO_WORKFLOW_ID", "2051712491264200706")
+RUNNINGHUB_VIDEO_IMAGE_NODE = os.getenv("RUNNINGHUB_VIDEO_IMAGE_NODE", "97")
+RUNNINGHUB_VIDEO_SCENE_NODES = ["487", "498", "508", "518"]
 
 
 class RunImageRequest(BaseModel):
@@ -501,7 +501,10 @@ class RunImageRequest(BaseModel):
 
 class RunVideoRequest(BaseModel):
     image_url: str
-    motion_prompt: str
+    scene_1: str
+    scene_2: str
+    scene_3: str
+    scene_4: str
     runninghub_key: str
 
 
@@ -549,7 +552,10 @@ async def run_video(req: RunVideoRequest, _=Depends(get_api_key)):
                     "apiKey": req.runninghub_key,
                     "nodeInfoList": [
                         {"nodeId": RUNNINGHUB_VIDEO_IMAGE_NODE, "fieldName": "image", "fieldValue": file_name},
-                        {"nodeId": RUNNINGHUB_VIDEO_PROMPT_NODE, "fieldName": "text", "fieldValue": req.motion_prompt},
+                        {"nodeId": RUNNINGHUB_VIDEO_SCENE_NODES[0], "fieldName": "text", "fieldValue": req.scene_1},
+                        {"nodeId": RUNNINGHUB_VIDEO_SCENE_NODES[1], "fieldName": "text", "fieldValue": req.scene_2},
+                        {"nodeId": RUNNINGHUB_VIDEO_SCENE_NODES[2], "fieldName": "text", "fieldValue": req.scene_3},
+                        {"nodeId": RUNNINGHUB_VIDEO_SCENE_NODES[3], "fieldName": "text", "fieldValue": req.scene_4},
                     ],
                 },
             )
@@ -623,6 +629,147 @@ async def run_video(req: RunVideoRequest, _=Depends(get_api_key)):
         raise
     except Exception as e:
         raise HTTPException(500, f"Erro interno DRIFT: {str(e)}")
+
+
+@app.post("/api/run/video/submit")
+async def run_video_submit(req: RunVideoRequest, _=Depends(get_api_key)):
+    """Submete job de vídeo ao RunningHub e retorna task_id imediatamente (sem polling)."""
+    try:
+        auth_headers = {
+            "Authorization": f"Bearer {req.runninghub_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            img_resp = await client.get(req.image_url)
+        if img_resp.status_code != 200:
+            raise HTTPException(500, f"Falha ao baixar imagem: {img_resp.status_code}")
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            upload_resp = await client.post(
+                f"{RUNNINGHUB_BASE}/task/openapi/upload",
+                headers={"Authorization": f"Bearer {req.runninghub_key}"},
+                files={"file": ("image.png", img_resp.content, "image/png")},
+                data={"apiKey": req.runninghub_key},
+            )
+        if upload_resp.status_code != 200:
+            raise HTTPException(500, f"Upload RunningHub falhou: {upload_resp.text[:300]}")
+
+        upload_data = upload_resp.json()
+        raw = upload_data.get("data")
+        if isinstance(raw, dict):
+            file_name = raw.get("fileName") or raw.get("filename") or raw.get("name")
+        elif isinstance(raw, str):
+            file_name = raw
+        else:
+            file_name = upload_data.get("fileName") or upload_data.get("filename")
+        if not file_name:
+            raise HTTPException(500, f"fileName não retornado. Resposta: {upload_resp.text[:300]}")
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            create_resp = await client.post(
+                f"{RUNNINGHUB_BASE}/task/openapi/create",
+                headers=auth_headers,
+                json={
+                    "workflowId": RUNNINGHUB_VIDEO_WORKFLOW_ID,
+                    "apiKey": req.runninghub_key,
+                    "nodeInfoList": [
+                        {"nodeId": RUNNINGHUB_VIDEO_IMAGE_NODE, "fieldName": "image", "fieldValue": file_name},
+                        {"nodeId": RUNNINGHUB_VIDEO_SCENE_NODES[0], "fieldName": "text", "fieldValue": req.scene_1},
+                        {"nodeId": RUNNINGHUB_VIDEO_SCENE_NODES[1], "fieldName": "text", "fieldValue": req.scene_2},
+                        {"nodeId": RUNNINGHUB_VIDEO_SCENE_NODES[2], "fieldName": "text", "fieldValue": req.scene_3},
+                        {"nodeId": RUNNINGHUB_VIDEO_SCENE_NODES[3], "fieldName": "text", "fieldValue": req.scene_4},
+                    ],
+                },
+            )
+        if create_resp.status_code != 200:
+            raise HTTPException(500, f"RunningHub create falhou: {create_resp.text[:500]}")
+
+        create_data = create_resp.json()
+        raw = create_data.get("data")
+        if isinstance(raw, str):
+            task_id = raw
+        elif isinstance(raw, dict):
+            task_id = raw.get("taskId")
+        else:
+            task_id = create_data.get("taskId")
+        if not task_id:
+            raise HTTPException(500, f"taskId não retornado. Resposta: {create_resp.text[:500]}")
+
+        return JSONResponse({"task_id": task_id})
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Erro interno submit: {str(e)}")
+
+
+class VideoStatusRequest(BaseModel):
+    task_id: str
+    runninghub_key: str
+
+
+@app.post("/api/run/video/status")
+async def run_video_status(req: VideoStatusRequest, _=Depends(get_api_key)):
+    """Verifica status de um job de vídeo no RunningHub. Retorna video_url quando SUCCESS."""
+    try:
+        auth_headers = {
+            "Authorization": f"Bearer {req.runninghub_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            status_resp = await client.post(
+                f"{RUNNINGHUB_BASE}/task/openapi/status",
+                headers=auth_headers,
+                json={"taskId": req.task_id, "apiKey": req.runninghub_key},
+            )
+        if status_resp.status_code != 200:
+            raise HTTPException(500, f"Erro ao checar status: {status_resp.text[:300]}")
+
+        status_data = status_resp.json().get("data", "")
+        status = status_data if isinstance(status_data, str) else status_data.get("taskStatus", "")
+
+        if status == "FAILED":
+            raise HTTPException(500, "RunningHub: geração de vídeo falhou")
+
+        if status != "SUCCESS":
+            return JSONResponse({"status": status, "video_url": None})
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            out_resp = await client.post(
+                f"{RUNNINGHUB_BASE}/task/openapi/outputs",
+                headers=auth_headers,
+                json={"taskId": req.task_id, "apiKey": req.runninghub_key},
+            )
+        if out_resp.status_code != 200:
+            raise HTTPException(500, f"RunningHub outputs falhou: {out_resp.text[:500]}")
+
+        out_json = out_resp.json()
+        out_data = out_json.get("results") or out_json.get("data") or []
+        if not out_data:
+            raise HTTPException(500, f"Nenhum output retornado. Resposta: {out_resp.text[:500]}")
+
+        if isinstance(out_data, list):
+            first = out_data[0]
+            video_url = first if isinstance(first, str) else (
+                first.get("fileUrl") or first.get("url") or first.get("videoUrl")
+            )
+        elif isinstance(out_data, dict):
+            video_url = out_data.get("fileUrl") or out_data.get("url") or out_data.get("videoUrl")
+        else:
+            video_url = str(out_data)
+
+        return JSONResponse({
+            "status": "SUCCESS",
+            "video_url": video_url,
+            "outputs": out_data if isinstance(out_data, list) else [out_data],
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Erro interno status: {str(e)}")
 
 
 @app.post("/api/run/image")
